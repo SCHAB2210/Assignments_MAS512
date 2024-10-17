@@ -1,6 +1,6 @@
 # Ignore virtual environment folder
 MAS512/
--venv/
+.venv/
 # Other common ignores
 __pycache__/
 *.pyc
