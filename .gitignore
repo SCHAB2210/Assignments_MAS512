@@ -1,4 +1,4 @@
-# Ignore virtual environment folder
+#Ignore virtual environment folder
 MAS512/
 .venv/
 # Other common ignores
