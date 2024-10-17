@@ -1,0 +1,10 @@
+# Ignore virtual environment folder
+MAS512/
+
+# Other common ignores
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.swp
+*.swo
