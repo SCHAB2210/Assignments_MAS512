@@ -96,4 +96,3 @@ A CNN is designed to classify the vibration data. The model structure includes:
 
 ---
 
-This README provides a summary of each task and a step-by-step guide to reproduce the results. Let me know if further clarification is needed!
