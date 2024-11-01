@@ -1,86 +1,98 @@
 import os
 import cv2
-import shutil
 import random
+import shutil
+from ultralytics import YOLO
 
-CLASS_NAMES = ['car', 'bike', 'person', 'dog']
-ORIGINAL_IMAGE_DIR = 'path/to/original/images'
-LABEL_DIR = 'path/to/original/labels'
-AUGMENTED_IMAGE_DIR = 'dataset/images/augmented/'
-OUTPUT_DIR = 'dataset/'
-TRAIN_RATIO = 0.8
-VAL_RATIO = 0.1
-TEST_RATIO = 0.1
+# Paths and Settings
+base_path = 'Q6'
+classes = ['blue', 'pink', 'red', 'white']
+target_count = 600
+train_split = 0.8
+valid_split = 0.1
+test_split = 0.1
 
-def augment_image(image_path, output_dir):
-    image = cv2.imread(image_path)
-    filename = os.path.basename(image_path)
+# Create directories
+for split in ['train', 'valid', 'test']:
+    for class_name in classes:
+        os.makedirs(f"{base_path}/{split}/images/{class_name}", exist_ok=True)
+        os.makedirs(f"{base_path}/{split}/labels/{class_name}", exist_ok=True)
+
+# Step 1: Data Augmentation Functions
+def rotate_image(image, angle):
+    (h, w) = image.shape[:2]
+    center = (w // 2, h // 2)
+    matrix = cv2.getRotationMatrix2D(center, angle, 1.0)
+    rotated = cv2.warpAffine(image, matrix, (w, h))
+    return rotated
+
+def flip_image(image):
+    return cv2.flip(image, 1)
+
+def blur_image(image):
+    return cv2.GaussianBlur(image, (7, 7), 0)
+
+# Main Augmentation Function
+def augment_images(input_folder, output_folder, target_count=600):
+    images = [f for f in os.listdir(input_folder) if f.endswith('.jpg') or f.endswith('.png')]
+    current_count = len(images)
     
-    # Rotate the image
-    for angle in [90, 180, 270]:
-        rotated = cv2.rotate(image, angle)
-        cv2.imwrite(os.path.join(output_dir, f'rotated_{angle}_{filename}'), rotated)
+    while current_count < target_count:
+        img_name = random.choice(images)
+        img_path = os.path.join(input_folder, img_name)
+        image = cv2.imread(img_path)
+        if image is None:
+            continue
 
-    # Blur the image
-    blurred = cv2.GaussianBlur(image, (5, 5), 0)
-    cv2.imwrite(os.path.join(output_dir, f'blurred_{filename}'), blurred)
+        # Randomly apply transformations
+        choice = random.choice(['rotate', 'flip', 'blur'])
+        if choice == 'rotate':
+            angle = random.randint(-30, 30)
+            augmented = rotate_image(image, angle)
+        elif choice == 'flip':
+            augmented = flip_image(image)
+        elif choice == 'blur':
+            augmented = blur_image(image)
+        
+        aug_img_name = f"aug_{current_count}_{img_name}"
+        cv2.imwrite(os.path.join(output_folder, aug_img_name), augmented)
+        current_count += 1
 
-    # Mirror the image
-    mirrored = cv2.flip(image, 1)
-    cv2.imwrite(os.path.join(output_dir, f'mirrored_{filename}'), mirrored)
+# Step 2: Augment Each Class to 600 Images
+for class_name in classes:
+    input_folder = f"{base_path}/original/images/{class_name}"
+    output_folder = f"{base_path}/augmented/{class_name}/images"
+    augment_images(input_folder, output_folder, target_count=target_count)
 
-def create_augmented_dataset(original_image_paths):
-    os.makedirs(AUGMENTED_IMAGE_DIR, exist_ok=True)
-
-    for image_path in original_image_paths:
-        augment_image(image_path, AUGMENTED_IMAGE_DIR)
-
-def split_dataset(image_dir, label_dir, output_dir, train_ratio=TRAIN_RATIO, val_ratio=VAL_RATIO):
-    images = os.listdir(image_dir)
-    random.shuffle(images)
-
+# Step 3: Split Dataset into Train, Valid, and Test
+def split_dataset(class_name):
+    images = os.listdir(f"{base_path}/augmented/{class_name}/images")
     total_images = len(images)
-    train_count = int(total_images * train_ratio)
-    val_count = int(total_images * val_ratio)
+    train_end = int(total_images * train_split)
+    valid_end = int(total_images * (train_split + valid_split))
 
-    train_images = images[:train_count]
-    val_images = images[train_count:train_count + val_count]
-    test_images = images[train_count + val_count:]
+    for i, img_name in enumerate(images):
+        img_path = f"{base_path}/augmented/{class_name}/images/{img_name}"
+        label_path = img_path.replace("images", "labels").replace(".jpg", ".txt").replace(".png", ".txt")
+        
+        if i < train_end:
+            dest_folder = "train"
+        elif i < valid_end:
+            dest_folder = "valid"
+        else:
+            dest_folder = "test"
+        
+        shutil.copy(img_path, f"{base_path}/{dest_folder}/images/{class_name}/{img_name}")
+        if os.path.exists(label_path):  # Ensure label file exists
+            shutil.copy(label_path, f"{base_path}/{dest_folder}/labels/{class_name}/{img_name.replace('.jpg', '.txt').replace('.png', '.txt')}")
 
-    for image in train_images:
-        shutil.copy(os.path.join(image_dir, image), os.path.join(output_dir, 'images/train', image))
-        shutil.copy(os.path.join(label_dir, image.replace('.jpg', '.txt')), os.path.join(output_dir, 'labels/train', image.replace('.jpg', '.txt')))
+for class_name in classes:
+    split_dataset(class_name)
 
-    for image in val_images:
-        shutil.copy(os.path.join(image_dir, image), os.path.join(output_dir, 'images/val', image))
-        shutil.copy(os.path.join(label_dir, image.replace('.jpg', '.txt')), os.path.join(output_dir, 'labels/val', image.replace('.jpg', '.txt')))
+# Step 4: Train YOLOv8 Model
+model = YOLO("yolov8n.pt")  # Load YOLOv8 pre-trained model
+model.train(data="data.yaml", epochs=50, imgsz=640)
 
-    for image in test_images:
-        shutil.copy(os.path.join(image_dir, image), os.path.join(output_dir, 'images/test', image))
-        shutil.copy(os.path.join(label_dir, image.replace('.jpg', '.txt')), os.path.join(output_dir, 'labels/test', image.replace('.jpg', '.txt')))
-
-def create_yaml_file(output_dir):
-    yaml_content = f"""
-train: {output_dir}images/train
-val: {output_dir}images/val
-test: {output_dir}images/test
-
-nc: {len(CLASS_NAMES)}  # number of classes
-names: {CLASS_NAMES}  # your class names
-"""
-    with open(os.path.join(output_dir, 'dataset.yaml'), 'w') as f:
-        f.write(yaml_content)
-
-original_image_paths = [os.path.join(ORIGINAL_IMAGE_DIR, img) for img in os.listdir(ORIGINAL_IMAGE_DIR) if img.endswith('.jpg')]
-create_augmented_dataset(original_image_paths)
-
-os.makedirs(os.path.join(OUTPUT_DIR, 'images/train'), exist_ok=True)
-os.makedirs(os.path.join(OUTPUT_DIR, 'images/val'), exist_ok=True)
-os.makedirs(os.path.join(OUTPUT_DIR, 'images/test'), exist_ok=True)
-os.makedirs(os.path.join(OUTPUT_DIR, 'labels/train'), exist_ok=True)
-os.makedirs(os.path.join(OUTPUT_DIR, 'labels/val'), exist_ok=True)
-os.makedirs(os.path.join(OUTPUT_DIR, 'labels/test'), exist_ok=True)
-
-split_dataset(AUGMENTED_IMAGE_DIR, LABEL_DIR, OUTPUT_DIR)
-
-create_yaml_file(OUTPUT_DIR)
+# Step 5: Evaluate Model
+metrics = model.val()  # Validate model on validation set
+print("Evaluation Metrics:", metrics)
