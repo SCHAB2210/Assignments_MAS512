@@ -1,0 +1,7 @@
+names:
+  0: blue
+  1: pink
+  2: red
+  3: white
+path: .
+train: train.txt
